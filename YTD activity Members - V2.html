@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF--8">
+  <title>zKillboard Stats Matrix</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto Mono', monospace;
+      background-color: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      width: 95%;
+      max-width: 1400px;
+    }
+    h2 {
+      text-align: center;
+      color: #58a6ff;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 10px;
+    }
+    .input-area {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      align-items: flex-start;
+    }
+    textarea {
+      width: 350px;
+      height: 150px;
+      background-color: #010409;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 10px;
+      font-family: 'Roboto Mono', monospace;
+    }
+    .controls-area {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: center;
+      background-color: #161b22;
+      padding: 10px 15px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+    }
+    .filters label { font-weight: bold; user-select: none; }
+    .filters select, .filters input[type="text"], .filters input[type="number"] {
+      background-color: #010409;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      padding: 5px;
+      border-radius: 4px;
+    }
+    input[type="color"] {
+      min-width: 30px;
+      height: 30px;
+      padding: 2px;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      background-color: #010409;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #238636;
+      color: white;
+      border: 1px solid #2ea043;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s;
+    }
+    button:hover { background-color: #2ea043; }
+    button:disabled { background-color: #555; cursor: not-allowed; }
+    #copy-btn { background-color: #1f6feb; border-color: #1f6feb; }
+    #copy-btn:hover { background-color: #388bfd; }
+    #status { text-align: center; margin: 15px 0; min-height: 20px; color: #8b949e; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #30363d; padding: 8px 12px; text-align: center; font-size: 0.9em; transition: background-color 0.2s; }
+    th { background-color: #161b22; color: #58a6ff; white-space: pre; }
+    
+    /* --- THIS IS THE MODIFIED STYLE --- */
+    td:nth-child(2) {
+      text-align: left;
+      vertical-align: middle; /* This line was added */
+    }
+    
+    td .corp-logo { /* Changed selector for better targeting */
+      height: 24px;
+      width: 24px;
+      margin-right: 8px;
+      vertical-align: middle; /* Ensures image also respects middle alignment */
+    }
+    td.error { background-color: #480a10; color: #f85149; text-align: center !important; }
+    td.inactive-player { background-color: #4a4a4a !important; color: #999; }
+    tbody tr:nth-child(odd) { background-color: #0d1117; }
+    tbody tr:nth-child(even) { background-color: #161b22; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>zKillboard Stats Matrix</h2>
+    <div class="input-area">
+      <textarea id="names" placeholder="Enter character names..."></textarea>
+      <div class="controls-area">
+        <button id="run">Fetch Stats</button>
+        <div id="filters-container" class="filters" style="display: none;">
+          <label for="year-select">Year:</label>
+          <select id="year-select"></select>
+          <label for="name-filter">Name:</label>
+          <input type="text" id="name-filter" placeholder="Filter...">
+          <span style="border-left: 1px solid #30363d; height: 25px;"></span>
+          <label for="low-value-input">Mark if <</label>
+          <input type="number" id="low-value-input" value="20" style="width: 50px;">
+          <input type="color" id="low-value-color" value="#8b3f46">
+          <span style="border-left: 1px solid #30363d; height: 25px;"></span>
+          <input type="checkbox" id="hide-inactive-checkbox" style="margin-left: 5px;">
+          <label for="hide-inactive-checkbox">Hide Inactive</label>
+          <button id="copy-btn" style="margin-left: auto;">Copy for Discord</button>
+        </div>
+      </div>
+    </div>
+    <div id="status"></div>
+    <div id="table-container"></div>
+  </div>
+
+  <script>
+    const runBtn = document.getElementById("run");
+    const namesInput = document.getElementById("names");
+    const statusDiv = document.getElementById("status");
+    const filtersContainer = document.getElementById("filters-container");
+    const yearSelect = document.getElementById("year-select");
+    const nameFilterInput = document.getElementById("name-filter");
+    const copyBtn = document.getElementById("copy-btn");
+    const tableContainer = document.getElementById("table-container");
+    const lowValueInput = document.getElementById("low-value-input");
+    const lowValueColor = document.getElementById("low-value-color");
+    const hideInactiveCheckbox = document.getElementById("hide-inactive-checkbox");
+
+    let characterData = {};
+    let allMonths = new Set();
+    let clipboardText = "";
+    
+    // --- New ESI Helper Functions ---
+    async function fetchCharacterDetails(id) {
+      const r = await fetch(`https://esi.evetech.net/latest/characters/${id}/`);
+      if (!r.ok) throw new Error("ESI Character Error");
+      return r.json();
+    }
+    
+    // Fetches corporation details, using cache to avoid redundant calls
+    async function fetchCorporationDetails(id, cache) {
+      if (cache.has(id)) return cache.get(id);
+      const r = await fetch(`https://esi.evetech.net/latest/corporations/${id}/`);
+      if (!r.ok) throw new Error("ESI Corporation Error");
+      const data = await r.json();
+      const corpInfo = {
+        name: data.name,
+        logo: `https://images.evetech.net/corporations/${id}/logo?size=32`
+      };
+      cache.set(id, corpInfo); // Store in cache
+      return corpInfo;
+    }
+
+    // API & Main Logic
+    resolveNames=async n=>{const t=await fetch("https://esi.evetech.net/latest/universe/ids/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)});if(!t.ok)throw new Error("ESI Error");return(await t.json()).characters||[]};fetchStats=async n=>{const t=await fetch(`https://zkillboard.com/api/stats/characterID/${n}/`);if(!t.ok)throw new Error("zKillboard API Error");return t.json()};runBtn.addEventListener("click",async()=>{const n=namesInput.value.trim().split("\n").filter(n=>n);if(!n.length)return;runBtn.disabled=!0,runBtn.textContent="Fetching...",statusDiv.textContent="Resolving names...",tableContainer.innerHTML="",filtersContainer.style.display="none",characterData={},allMonths.clear();const t=new Map;try{const a=await resolveNames(n),e=new Map(a.map(n=>[n.name,n.id]));for(let a=0;a<n.length;a++){const r=n[a],i=e.get(r);statusDiv.textContent=`Fetching for ${r} (${a+1}/${n.length})...`,characterData[r]={error:!1,kills:new Map,corporation:{name:"N/A",logo:""}};try{if(!i){characterData[r].error="Name not found";continue}const n=await fetchCharacterDetails(i),a=await fetchCorporationDetails(n.corporation_id,t);characterData[r].corporation=a;const e=await fetchStats(i);e?.months&&Object.entries(e.months).forEach(([n,t])=>{const a=n.replace("-","");allMonths.add(a),characterData[r].kills.set(a,t.shipsDestroyed||0)})}catch(n){characterData[r].error="Fetch failed"}if(a<n.length-1)await new Promise(n=>setTimeout(n,1e3))}populateFilters(),renderTable(),filtersContainer.style.display="flex"}catch(n){statusDiv.textContent=`Error: ${n.message}`}finally{runBtn.disabled=!1,runBtn.textContent="Fetch Stats",statusDiv.textContent.startsWith("Error")||(statusDiv.textContent="Done.")}});
+
+    function populateFilters() {
+      const years = ['All', ...new Set(Array.from(allMonths).map(m => m.substring(0, 4)))];
+      yearSelect.innerHTML = years.sort().reverse().map(y => `<option value="${y}">${y}</option>`).join('');
+      nameFilterInput.value = '';
+      hideInactiveCheckbox.checked = false;
+    }
+
+    function formatMonthHeader(yyyymm){const t=yyyymm.substring(0,4),e=parseInt(yyyymm.substring(4,6),10)-1;return`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][e]}\n${t}`}
+
+    function renderTable() {
+      const selectedYear = yearSelect.value;
+      const sortedMonths = Array.from(allMonths)
+        .filter(m => selectedYear === 'All' || m.startsWith(selectedYear))
+        .sort((a, b) => a.localeCompare(b));
+      
+      generateClipboardText(sortedMonths);
+      
+      if (sortedMonths.length === 0 && Object.keys(characterData).length > 0) {
+        tableContainer.innerHTML = "<p>No kill data for this period.</p>"; 
+      }
+      
+      const lastTwoMonths = sortedMonths.slice(-2);
+      
+      let html = "<table><thead><tr><th>Character</th><th>Corporation</th>"; // Added Corporation header
+      sortedMonths.forEach(m => { html += `<th>${formatMonthHeader(m)}</th>`; });
+      html += "</tr></thead><tbody>";
+      for (const name in characterData) {
+        let isInactive = false;
+        if (lastTwoMonths.length === 2 && !characterData[name].error) {
+          const kills1 = characterData[name].kills.get(lastTwoMonths[0]) || 0;
+          const kills2 = characterData[name].kills.get(lastTwoMonths[1]) || 0;
+          if (kills1 === 0 && kills2 === 0) {
+            isInactive = true;
+          }
+        }
+        
+        const inactiveClass = isInactive ? 'inactive-player' : '';
+        const corp = characterData[name].corporation;
+        html += `<tr data-name="${name.toLowerCase()}">`;
+        html += `<td class="${inactiveClass}">${name}</td>`;
+        
+        if (characterData[name].error) {
+          // Colspan is now +1 for the corp column
+          html += `<td class="error" colspan="${sortedMonths.length + 1}">${characterData[name].error}</td>`;
+        } else {
+          html += `<td><img class="corp-logo" src="${corp.logo}" alt="">${corp.name}</td>`;
+          sortedMonths.forEach(m => {
+            html += `<td>${characterData[name].kills.get(m) || 0}</td>`;
+          });
+        }
+        html += "</tr>";
+      }
+      html += "</tbody></table>";
+      tableContainer.innerHTML = html;
+      
+      applyLowValueStyling();
+      applyTableFilters();
+    }
+
+    function applyLowValueStyling() {
+      const threshold = parseInt(lowValueInput.value, 10);
+      const color = lowValueColor.value;
+      if (isNaN(threshold)) return;
+      document.querySelectorAll("#table-container tbody td").forEach(cell => {
+        // Exclude error cells and first two columns (name, corp)
+        if (cell.classList.contains('error') || cell.cellIndex < 2) return;
+        cell.style.backgroundColor = "";
+        const value = parseInt(cell.textContent, 10);
+        if (value > 0 && value < threshold) {
+          cell.style.backgroundColor = color;
+        }
+      });
+    }
+    
+    function applyTableFilters() {
+      const nameFilter = nameFilterInput.value.toLowerCase();
+      const hideInactive = hideInactiveCheckbox.checked;
+      document.querySelectorAll("#table-container tbody tr").forEach(row => {
+        const nameMatch = row.dataset.name.includes(nameFilter);
+        const isInactiveRow = row.querySelector('td:first-child').classList.contains('inactive-player');
+        const shouldBeVisible = nameMatch && (!hideInactive || !isInactiveRow);
+        row.style.display = shouldBeVisible ? "" : "none";
+      });
+    }
+
+    generateClipboardText=(n)=>{const t=["Char","Corporation",...n.map(n=>formatMonthHeader(n).replace("\n","-"))],e=Object.entries(characterData).map(([a,{error:r,kills:i,corporation:o}])=>r?[a,o.name,r]:[a,o.name,...n.map(n=>i.get(n)||0)]),a=t.map((n,t)=>Math.max(n.length,...e.map(n=>String(n[t]??"").length))),r=n=>n.map((n,t)=>String(n).padEnd(a[t])).join(" | ");clipboardText="```\n"+r(t)+"\n"+a.map(n=>"-".repeat(n)).join("-|-")+"\n"+e.map(r).join("\n")+"\n```"};copyTableToClipboard=()=>{if(!clipboardText)return;navigator.clipboard.writeText(clipboardText).then(()=>{const n=copyBtn.textContent;copyBtn.textContent="Copied!",setTimeout(()=>{copyBtn.textContent=n},2e3)},()=>{statusDiv.textContent="Copy failed."})};
+
+    // Event Listeners
+    yearSelect.addEventListener("change", renderTable);
+    copyBtn.addEventListener("click", copyTableToClipboard);
+    lowValueInput.addEventListener("input", applyLowValueStyling);
+    lowValueColor.addEventListener("input", applyLowValueStyling);
+    nameFilterInput.addEventListener("input", applyTableFilters);
+    hideInactiveCheckbox.addEventListener("change", applyTableFilters);
+
+  </script>
+</body>
+</html>
